@@ -1,7 +1,7 @@
 {
   "name": "attendance-tracker",
   "private": true,
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "Offline attendance tracker (localStorage) with optional updater",
   "author": "Dino199908",
   "type": "module",
