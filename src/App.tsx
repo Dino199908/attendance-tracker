@@ -72,6 +72,8 @@ const THEME = {
   danger: "var(--danger)",
   warn: "var(--warn)",
   ok: "var(--ok)",
+  fieldBg: "var(--fieldBg)",
+  subtleBg: "var(--subtleBg)"
 };
 
 const PALETTES: Record<ThemeMode, Record<string, string>> = {
@@ -85,7 +87,9 @@ const PALETTES: Record<ThemeMode, Record<string, string>> = {
     "--danger": "#ef4444",
     "--warn": "#f59e0b",
     "--ok": "#22c55e",
-    "--calendarInvert": "1",
+    "--fieldBg": "rgba(255,255,255,0.04)",
+    "--subtleBg": "rgba(255,255,255,0.02)",
+    "--calendarInvert": "1"
   },
   light: {
     "--bg": "#f8fafc",
@@ -97,8 +101,10 @@ const PALETTES: Record<ThemeMode, Record<string, string>> = {
     "--danger": "#dc2626",
     "--warn": "#d97706",
     "--ok": "#16a34a",
-    "--calendarInvert": "0",
-  },
+    "--fieldBg": "#ffffff",
+    "--subtleBg": "rgba(2,6,23,0.03)",
+    "--calendarInvert": "0"
+  }
 };
 
 // ================= UPDATER BRIDGE =================
@@ -184,7 +190,7 @@ function loadEmployees(): Employee[] {
               points: Number(x?.points ?? pointsForType(type)),
               date: String(x?.date ?? todayISO()),
               store: String(x?.store ?? ""),
-              reason: String(x?.reason ?? ""),
+              reason: String(x?.reason ?? "")
             } as Infraction;
           })
         : [];
@@ -193,7 +199,7 @@ function loadEmployees(): Employee[] {
         id: String(e?.id ?? newId()),
         employeeId: digitsOnly(String(e?.employeeId ?? "")),
         name: String(e?.name ?? "Employee"),
-        infractions,
+        infractions
       } as Employee;
     });
   } catch {
@@ -337,7 +343,7 @@ export default function App() {
               onConfirm: () => {
                 setConfirm({ open: false });
                 deleteEmployee(rowId);
-              },
+              }
             })
           }
           onOpen={(rowId) => setView({ name: "employee", employeeRowId: rowId })}
@@ -467,11 +473,11 @@ function EmployeeList(props: {
                     border: `1px solid ${THEME.border}`,
                     borderRadius: 14,
                     padding: 12,
-                    background: "rgba(255,255,255,0.02)",
+                    background: THEME.subtleBg,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 12,
+                    gap: 12
                   }}
                 >
                   <div>
@@ -513,8 +519,8 @@ function EmployeeList(props: {
                   border: `1px solid ${THEME.border}`,
                   padding: "6px 10px",
                   borderRadius: 999,
-                  background: "rgba(255,255,255,0.02)",
-                  fontWeight: 900,
+                  background: THEME.subtleBg,
+                  fontWeight: 900
                 }}
               >
                 {s}
@@ -624,17 +630,11 @@ function EmployeePage(props: {
         </div>
 
         {showPolicy && (
-          <div
-            style={{
-              marginTop: 12,
-              border: `1px solid ${THEME.border}`,
-              borderRadius: 14,
-              padding: 12,
-              background: "rgba(255,255,255,0.02)",
-            }}
-          >
+          <div style={{ marginTop: 12, border: `1px solid ${THEME.border}`, borderRadius: 14, padding: 12, background: THEME.subtleBg }}>
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Attendance policy reference</div>
-            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>PRS Wal-Mart Wireless Attendance Policy (Revised May 2025)</div>
+            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>
+              PRS Wal-Mart Wireless Attendance Policy (Revised May 2025)
+            </div>
             <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
               <div>• Call Out (prior to shift): <strong>3</strong> points</div>
               <div>• Call Out (after shift starts): <strong>8</strong> points</div>
@@ -708,15 +708,7 @@ function EmployeePage(props: {
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
             {props.employee.infractions.map((i) => (
-              <div
-                key={i.id}
-                style={{
-                  border: `1px solid ${THEME.border}`,
-                  borderRadius: 14,
-                  padding: 12,
-                  background: "rgba(255,255,255,0.02)",
-                }}
-              >
+              <div key={i.id} style={{ border: `1px solid ${THEME.border}`, borderRadius: 14, padding: 12, background: THEME.subtleBg }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 900 }}>{i.type}</div>
                   <div style={{ color: THEME.muted }}>{i.points} pts</div>
@@ -748,9 +740,7 @@ function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onTheme
       return;
     }
 
-    up.getVersion()
-      .then((v) => setVersion(v))
-      .catch(() => setVersion("(unknown)"));
+    up.getVersion().then(setVersion).catch(() => setVersion("(unknown)"));
 
     off = up.onStatus((payload: any) => {
       if (payload && typeof payload === "object" && typeof payload.state === "string") {
@@ -832,16 +822,10 @@ function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onTheme
           <div>
             <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 8 }}>Theme</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button
-                onClick={() => props.onThemeMode("dark")}
-                style={props.themeMode === "dark" ? btnStyle("primary") : btnStyle("ghost")}
-              >
+              <button onClick={() => props.onThemeMode("dark")} style={props.themeMode === "dark" ? btnStyle("primary") : btnStyle("ghost")}>
                 Dark
               </button>
-              <button
-                onClick={() => props.onThemeMode("light")}
-                style={props.themeMode === "light" ? btnStyle("primary") : btnStyle("ghost")}
-              >
+              <button onClick={() => props.onThemeMode("light")} style={props.themeMode === "light" ? btnStyle("primary") : btnStyle("ghost")}>
                 Light
               </button>
             </div>
@@ -852,20 +836,10 @@ function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onTheme
               <div style={{ color: THEME.muted, fontSize: 12 }}>Version</div>
               <div style={{ fontWeight: 900, fontSize: 16 }}>{version}</div>
             </div>
-
             <button onClick={checkUpdates} style={btnStyle("primary")}>Check for updates</button>
           </div>
 
-          <div
-            style={{
-              border: `1px solid ${THEME.border}`,
-              borderRadius: 14,
-              padding: 12,
-              background: "rgba(255,255,255,0.02)",
-              color: THEME.muted,
-              fontSize: 13,
-            }}
-          >
+          <div style={{ border: `1px solid ${THEME.border}`, borderRadius: 14, padding: 12, background: THEME.subtleBg, color: THEME.muted, fontSize: 13 }}>
             {statusText}
           </div>
 
@@ -880,10 +854,10 @@ function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onTheme
 
 function StatusPill(props: { status: string; total: number; tone: BadgeTone }) {
   const colors: Record<BadgeTone, { border: string; bg: string; fg: string }> = {
-    neutral: { border: THEME.border, bg: "rgba(2,6,23,0.03)", fg: THEME.text },
+    neutral: { border: THEME.border, bg: THEME.subtleBg, fg: THEME.text },
     ok: { border: THEME.ok, bg: "rgba(34,197,94,0.12)", fg: THEME.ok },
     warn: { border: THEME.warn, bg: "rgba(245,158,11,0.12)", fg: THEME.warn },
-    danger: { border: THEME.danger, bg: "rgba(239,68,68,0.12)", fg: THEME.danger },
+    danger: { border: THEME.danger, bg: "rgba(239,68,68,0.12)", fg: THEME.danger }
   };
 
   const s = colors[props.tone];
@@ -901,7 +875,7 @@ function StatusPill(props: { status: string; total: number; tone: BadgeTone }) {
         display: "flex",
         alignItems: "center",
         gap: 10,
-        minHeight: 48,
+        minHeight: 48
       }}
       title="Attendance Status"
     >
@@ -922,7 +896,7 @@ function Card(props: { children: React.ReactNode }) {
         padding: 14,
         margin: "12px 0",
         background: THEME.card,
-        boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.08)"
       }}
     >
       {props.children}
@@ -937,9 +911,9 @@ function inputStyle(): React.CSSProperties {
     padding: 10,
     borderRadius: 12,
     border: `1px solid ${THEME.border}`,
-    background: "rgba(2,6,23,0.03)",
+    background: THEME.fieldBg,
     color: THEME.text,
-    outline: "none",
+    outline: "none"
   };
 }
 
@@ -949,9 +923,9 @@ function selectStyle(): React.CSSProperties {
     padding: 10,
     borderRadius: 12,
     border: `1px solid ${THEME.border}`,
-    background: "rgba(2,6,23,0.03)",
+    background: THEME.fieldBg,
     color: THEME.text,
-    outline: "none",
+    outline: "none"
   };
 }
 
@@ -962,10 +936,10 @@ function textareaStyle(): React.CSSProperties {
     minHeight: 70,
     borderRadius: 12,
     border: `1px solid ${THEME.border}`,
-    background: "rgba(2,6,23,0.03)",
+    background: THEME.fieldBg,
     color: THEME.text,
     outline: "none",
-    resize: "vertical",
+    resize: "vertical"
   };
 }
 
@@ -976,8 +950,8 @@ function btnStyle(kind: "primary" | "ghost" | "danger"): React.CSSProperties {
     border: `1px solid ${THEME.border}`,
     fontWeight: 900,
     cursor: "pointer",
-    background: "rgba(2,6,23,0.02)",
-    color: THEME.text,
+    background: THEME.subtleBg,
+    color: THEME.text
   };
 
   if (kind === "primary") return { ...base, background: THEME.primary, border: `1px solid ${THEME.primary}`, color: "#00111a" };
