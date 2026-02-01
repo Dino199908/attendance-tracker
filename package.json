@@ -1,0 +1,56 @@
+{
+  "name": "attendance-tracker",
+  "private": true,
+  "version": "1.0.2",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --port 5179",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "desktop:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5179\" \"cross-env VITE_DEV_SERVER_URL=http://localhost:5179 electron .\"",
+    "desktop:build": "npm run build && electron-builder",
+    "desktop:dist": "npm run build && electron-builder --publish never",
+    "desktop:publish": "npm run build && electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.7.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^40.1.0",
+    "electron-builder": "^26.6.0",
+    "typescript": "^5.4.5",
+    "vite": "^7.3.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.attendancetracker.desktop",
+    "productName": "Attendance Tracker",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Dino199908",
+        "repo": "attendance-tracker"
+      }
+    ]
+  }
+}

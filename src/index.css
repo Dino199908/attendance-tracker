@@ -1,0 +1,9 @@
+:root {
+  color-scheme: light;
+}
+* {
+  box-sizing: border-box;
+}
+button {
+  cursor: pointer;
+}
