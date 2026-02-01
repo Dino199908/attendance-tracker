@@ -73,7 +73,7 @@ const THEME = {
   warn: "var(--warn)",
   ok: "var(--ok)",
   fieldBg: "var(--fieldBg)",
-  subtleBg: "var(--subtleBg)"
+  subtleBg: "var(--subtleBg)",
 };
 
 const PALETTES: Record<ThemeMode, Record<string, string>> = {
@@ -89,7 +89,7 @@ const PALETTES: Record<ThemeMode, Record<string, string>> = {
     "--ok": "#22c55e",
     "--fieldBg": "rgba(255,255,255,0.04)",
     "--subtleBg": "rgba(255,255,255,0.02)",
-    "--calendarInvert": "1"
+    "--calendarInvert": "1",
   },
   light: {
     "--bg": "#f8fafc",
@@ -103,8 +103,8 @@ const PALETTES: Record<ThemeMode, Record<string, string>> = {
     "--ok": "#16a34a",
     "--fieldBg": "#ffffff",
     "--subtleBg": "rgba(2,6,23,0.03)",
-    "--calendarInvert": "0"
-  }
+    "--calendarInvert": "0",
+  },
 };
 
 // ================= UPDATER BRIDGE =================
@@ -190,7 +190,7 @@ function loadEmployees(): Employee[] {
               points: Number(x?.points ?? pointsForType(type)),
               date: String(x?.date ?? todayISO()),
               store: String(x?.store ?? ""),
-              reason: String(x?.reason ?? "")
+              reason: String(x?.reason ?? ""),
             } as Infraction;
           })
         : [];
@@ -199,7 +199,7 @@ function loadEmployees(): Employee[] {
         id: String(e?.id ?? newId()),
         employeeId: digitsOnly(String(e?.employeeId ?? "")),
         name: String(e?.name ?? "Employee"),
-        infractions
+        infractions,
       } as Employee;
     });
   } catch {
@@ -318,6 +318,16 @@ export default function App() {
     );
   }
 
+  function deleteInfraction(empRowId: string, infractionId: string) {
+    setEmployees(
+      employees.map((e) =>
+        e.id === empRowId
+          ? { ...e, infractions: e.infractions.filter((i) => i.id !== infractionId) }
+          : e
+      )
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: THEME.bg, color: THEME.text, padding: 16, fontFamily: "system-ui, Arial" }}>
       <style>{`
@@ -343,7 +353,7 @@ export default function App() {
               onConfirm: () => {
                 setConfirm({ open: false });
                 deleteEmployee(rowId);
-              }
+              },
             })
           }
           onOpen={(rowId) => setView({ name: "employee", employeeRowId: rowId })}
@@ -364,6 +374,21 @@ export default function App() {
           onRename={(name) => updateEmployeeName(selected.id, name)}
           onChangeEmployeeId={(eid) => updateEmployeeId(selected.id, eid)}
           onAdd={(data) => addInfraction(selected.id, data)}
+          onDeleteInfraction={(infractionId) => {
+            const inf = selected.infractions.find((x) => x.id === infractionId);
+            const label = inf ? `${inf.type} • ${inf.points} pts • ${inf.date}` : "this infraction";
+            setConfirm({
+              open: true,
+              title: "Delete Infraction",
+              message: `Delete ${label}? This cannot be undone.`,
+              danger: true,
+              confirmText: "Delete",
+              onConfirm: () => {
+                setConfirm({ open: false });
+                deleteInfraction(selected.id, infractionId);
+              },
+            });
+          }}
         />
       )}
 
@@ -431,7 +456,9 @@ function EmployeeList(props: {
           <h2 style={{ margin: 0 }}>Employees</h2>
           <div style={{ color: THEME.muted, fontSize: 12 }}>Offline • Saved locally</div>
         </div>
-        <button onClick={props.onSettings} style={btnStyle("ghost")}>Settings</button>
+        <button onClick={props.onSettings} style={btnStyle("ghost")}>
+          Settings
+        </button>
       </div>
 
       <Card>
@@ -442,6 +469,12 @@ function EmployeeList(props: {
               setName(e.target.value);
               setError(null);
             }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
             placeholder="Employee’s Name (required)"
             style={inputStyle()}
           />
@@ -451,11 +484,19 @@ function EmployeeList(props: {
               setEmployeeId(digitsOnly(e.target.value));
               setError(null);
             }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
             placeholder="Employee ID (numbers only, required)"
             inputMode="numeric"
             style={inputStyle()}
           />
-          <button onClick={submit} style={btnStyle("primary")}>Add</button>
+          <button onClick={submit} style={btnStyle("primary")}>
+            Add
+          </button>
         </div>
 
         {error && <div style={{ marginTop: 10, color: THEME.danger, fontWeight: 900 }}>{error}</div>}
@@ -477,7 +518,7 @@ function EmployeeList(props: {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 12
+                    gap: 12,
                   }}
                 >
                   <div>
@@ -485,8 +526,12 @@ function EmployeeList(props: {
                     <div style={{ fontSize: 12, color: THEME.muted }}>{sumPoints(e.infractions)} pts</div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => props.onOpen(e.id)} style={btnStyle("ghost")}>Open</button>
-                    <button onClick={() => props.onDelete(e.id, label)} style={btnStyle("danger")}>Delete</button>
+                    <button onClick={() => props.onOpen(e.id)} style={btnStyle("ghost")}>
+                      Open
+                    </button>
+                    <button onClick={() => props.onDelete(e.id, label)} style={btnStyle("danger")}>
+                      Delete
+                    </button>
                   </div>
                 </div>
               );
@@ -498,7 +543,19 @@ function EmployeeList(props: {
       <Card>
         <h3 style={{ marginTop: 0 }}>Stores</h3>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <input value={store} onChange={(e) => setStore(e.target.value)} placeholder="Store #" style={inputStyle()} />
+          <input
+          value={store}
+          onChange={(e) => setStore(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              props.onAddStore(store);
+              setStore("");
+            }
+          }}
+          placeholder="Store #"
+          style={inputStyle()}
+        />
           <button
             onClick={() => {
               props.onAddStore(store);
@@ -520,7 +577,7 @@ function EmployeeList(props: {
                   padding: "6px 10px",
                   borderRadius: 999,
                   background: THEME.subtleBg,
-                  fontWeight: 900
+                  fontWeight: 900,
                 }}
               >
                 {s}
@@ -541,6 +598,7 @@ function EmployeePage(props: {
   onRename: (name: string) => void;
   onChangeEmployeeId: (employeeId: string) => void;
   onAdd: (data: Omit<Infraction, "id">) => void;
+  onDeleteInfraction: (infractionId: string) => void;
 }) {
   const [name, setName] = useState(props.employee.name);
   const [employeeId, setEmployeeId] = useState(props.employee.employeeId);
@@ -563,7 +621,9 @@ function EmployeePage(props: {
 
   return (
     <div style={{ maxWidth: 980, margin: "0 auto" }}>
-      <button onClick={props.onBack} style={btnStyle("ghost")}>Back</button>
+      <button onClick={props.onBack} style={btnStyle("ghost")}>
+        Back
+      </button>
 
       <Card>
         <div style={{ display: "grid", gap: 10 }}>
@@ -630,11 +690,17 @@ function EmployeePage(props: {
         </div>
 
         {showPolicy && (
-          <div style={{ marginTop: 12, border: `1px solid ${THEME.border}`, borderRadius: 14, padding: 12, background: THEME.subtleBg }}>
+          <div
+            style={{
+              marginTop: 12,
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 14,
+              padding: 12,
+              background: THEME.subtleBg,
+            }}
+          >
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Attendance policy reference</div>
-            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>
-              PRS Wal-Mart Wireless Attendance Policy (Revised May 2025)
-            </div>
+            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>PRS Wal-Mart Wireless Attendance Policy (Revised May 2025)</div>
             <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
               <div>• Call Out (prior to shift): <strong>3</strong> points</div>
               <div>• Call Out (after shift starts): <strong>8</strong> points</div>
@@ -675,7 +741,9 @@ function EmployeePage(props: {
               <span style={{ fontSize: 12, color: THEME.muted }}>Scheduled Store</span>
               <select value={store} onChange={(e) => setStore(e.target.value)} style={selectStyle()}>
                 {props.stores.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </label>
@@ -687,7 +755,9 @@ function EmployeePage(props: {
           </label>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ color: THEME.muted, fontSize: 13 }}>Points: <strong style={{ color: THEME.text }}>{points}</strong></div>
+            <div style={{ color: THEME.muted, fontSize: 13 }}>
+              Points: <strong style={{ color: THEME.text }}>{points}</strong>
+            </div>
             <button
               onClick={() => {
                 props.onAdd({ type, date, store, points, reason });
@@ -708,10 +778,23 @@ function EmployeePage(props: {
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
             {props.employee.infractions.map((i) => (
-              <div key={i.id} style={{ border: `1px solid ${THEME.border}`, borderRadius: 14, padding: 12, background: THEME.subtleBg }}>
+              <div
+                key={i.id}
+                style={{
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 14,
+                  padding: 12,
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 900 }}>{i.type}</div>
-                  <div style={{ color: THEME.muted }}>{i.points} pts</div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <div style={{ color: THEME.muted }}>{i.points} pts</div>
+                    <button onClick={() => props.onDeleteInfraction(i.id)} style={btnStyle("danger")}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
                 <div style={{ marginTop: 6, color: THEME.muted, fontSize: 13 }}>
                   {i.date} • Store: {i.store}
@@ -740,7 +823,9 @@ function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onTheme
       return;
     }
 
-    up.getVersion().then(setVersion).catch(() => setVersion("(unknown)"));
+    up.getVersion()
+      .then((v) => setVersion(v))
+      .catch(() => setVersion("(unknown)"));
 
     off = up.onStatus((payload: any) => {
       if (payload && typeof payload === "object" && typeof payload.state === "string") {
@@ -813,7 +898,9 @@ function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onTheme
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <button onClick={props.onBack} style={btnStyle("ghost")}>Back</button>
+      <button onClick={props.onBack} style={btnStyle("ghost")}>
+        Back
+      </button>
 
       <Card>
         <h2 style={{ marginTop: 0 }}>Settings</h2>
@@ -836,15 +923,29 @@ function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onTheme
               <div style={{ color: THEME.muted, fontSize: 12 }}>Version</div>
               <div style={{ fontWeight: 900, fontSize: 16 }}>{version}</div>
             </div>
-            <button onClick={checkUpdates} style={btnStyle("primary")}>Check for updates</button>
+
+            <button onClick={checkUpdates} style={btnStyle("primary")}>
+              Check for updates
+            </button>
           </div>
 
-          <div style={{ border: `1px solid ${THEME.border}`, borderRadius: 14, padding: 12, background: THEME.subtleBg, color: THEME.muted, fontSize: 13 }}>
+          <div
+            style={{
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 14,
+              padding: 12,
+              background: THEME.subtleBg,
+              color: THEME.muted,
+              fontSize: 13,
+            }}
+          >
             {statusText}
           </div>
 
           {status.state === "available" && (
-            <button onClick={installNow} style={btnStyle("primary")}>Update & Restart</button>
+            <button onClick={installNow} style={btnStyle("primary")}>
+              Update & Restart
+            </button>
           )}
         </div>
       </Card>
@@ -857,7 +958,7 @@ function StatusPill(props: { status: string; total: number; tone: BadgeTone }) {
     neutral: { border: THEME.border, bg: THEME.subtleBg, fg: THEME.text },
     ok: { border: THEME.ok, bg: "rgba(34,197,94,0.12)", fg: THEME.ok },
     warn: { border: THEME.warn, bg: "rgba(245,158,11,0.12)", fg: THEME.warn },
-    danger: { border: THEME.danger, bg: "rgba(239,68,68,0.12)", fg: THEME.danger }
+    danger: { border: THEME.danger, bg: "rgba(239,68,68,0.12)", fg: THEME.danger },
   };
 
   const s = colors[props.tone];
@@ -875,7 +976,7 @@ function StatusPill(props: { status: string; total: number; tone: BadgeTone }) {
         display: "flex",
         alignItems: "center",
         gap: 10,
-        minHeight: 48
+        minHeight: 48,
       }}
       title="Attendance Status"
     >
@@ -896,7 +997,7 @@ function Card(props: { children: React.ReactNode }) {
         padding: 14,
         margin: "12px 0",
         background: THEME.card,
-        boxShadow: "0 8px 30px rgba(0,0,0,0.08)"
+        boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
       }}
     >
       {props.children}
@@ -913,7 +1014,7 @@ function inputStyle(): React.CSSProperties {
     border: `1px solid ${THEME.border}`,
     background: THEME.fieldBg,
     color: THEME.text,
-    outline: "none"
+    outline: "none",
   };
 }
 
@@ -925,7 +1026,7 @@ function selectStyle(): React.CSSProperties {
     border: `1px solid ${THEME.border}`,
     background: THEME.fieldBg,
     color: THEME.text,
-    outline: "none"
+    outline: "none",
   };
 }
 
@@ -939,7 +1040,7 @@ function textareaStyle(): React.CSSProperties {
     background: THEME.fieldBg,
     color: THEME.text,
     outline: "none",
-    resize: "vertical"
+    resize: "vertical",
   };
 }
 
@@ -951,7 +1052,7 @@ function btnStyle(kind: "primary" | "ghost" | "danger"): React.CSSProperties {
     fontWeight: 900,
     cursor: "pointer",
     background: THEME.subtleBg,
-    color: THEME.text
+    color: THEME.text,
   };
 
   if (kind === "primary") return { ...base, background: THEME.primary, border: `1px solid ${THEME.primary}`, color: "#00111a" };
@@ -972,8 +1073,12 @@ function ConfirmDialog(props: { state: Extract<ConfirmState, { open: true }>; on
         <div style={{ fontWeight: 900, fontSize: 16 }}>{s.title}</div>
         <p style={{ color: THEME.muted, marginTop: 8 }}>{s.message}</p>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={props.onCancel} style={btnStyle("ghost")}>Cancel</button>
-          <button onClick={s.onConfirm} style={btnStyle(s.danger ? "danger" : "primary")}>{s.confirmText ?? "OK"}</button>
+          <button onClick={props.onCancel} style={btnStyle("ghost")}>
+            Cancel
+          </button>
+          <button onClick={s.onConfirm} style={btnStyle(s.danger ? "danger" : "primary")}>
+            {s.confirmText ?? "OK"}
+          </button>
         </div>
       </div>
     </div>
