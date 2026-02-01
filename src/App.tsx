@@ -23,7 +23,7 @@ type Infraction = {
 
 type Employee = {
   id: string; // internal row id
-  employeeId: string; // numbers only, required, unique
+  employeeId: string; // numbers-only, required, unique
   name: string; // Employee’s Name
   infractions: Infraction[];
 };
@@ -55,20 +55,50 @@ type UpdateStatus =
   | { state: "ready"; latestVersion?: string; message?: string }
   | { state: "error"; message?: string };
 
+type ThemeMode = "dark" | "light";
+
 // ================= CONSTANTS =================
 const STORAGE_KEY = "attendance_tracker_v_final";
 const STORES_KEY = "attendance_tracker_stores_v_final";
+const THEME_MODE_KEY = "attendance_tracker_theme_mode_v1";
 
 const THEME = {
-  bg: "#0f172a",
-  card: "#020617",
-  border: "#1e293b",
-  text: "#e5e7eb",
-  muted: "#94a3b8",
-  primary: "#38bdf8",
-  danger: "#ef4444",
-  warn: "#f59e0b",
-  ok: "#22c55e",
+  bg: "var(--bg)",
+  card: "var(--card)",
+  border: "var(--border)",
+  text: "var(--text)",
+  muted: "var(--muted)",
+  primary: "var(--primary)",
+  danger: "var(--danger)",
+  warn: "var(--warn)",
+  ok: "var(--ok)",
+};
+
+const PALETTES: Record<ThemeMode, Record<string, string>> = {
+  dark: {
+    "--bg": "#0f172a",
+    "--card": "#020617",
+    "--border": "#1e293b",
+    "--text": "#e5e7eb",
+    "--muted": "#94a3b8",
+    "--primary": "#38bdf8",
+    "--danger": "#ef4444",
+    "--warn": "#f59e0b",
+    "--ok": "#22c55e",
+    "--calendarInvert": "1",
+  },
+  light: {
+    "--bg": "#f8fafc",
+    "--card": "#ffffff",
+    "--border": "#cbd5e1",
+    "--text": "#0f172a",
+    "--muted": "#475569",
+    "--primary": "#0284c7",
+    "--danger": "#dc2626",
+    "--warn": "#d97706",
+    "--ok": "#16a34a",
+    "--calendarInvert": "0",
+  },
 };
 
 // ================= UPDATER BRIDGE =================
@@ -92,8 +122,8 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function digitsOnly(s: string): string {
-  return (s ?? "").replace(/\D+/g, "");
+function digitsOnly(s: string) {
+  return String(s ?? "").replace(/[^0-9]+/g, "");
 }
 
 function pointsForType(type: InfractionType): number {
@@ -207,12 +237,34 @@ function normalizeEmployees(data: Employee[]): Employee[] {
   return out;
 }
 
+function loadThemeMode(): ThemeMode {
+  const raw = localStorage.getItem(THEME_MODE_KEY);
+  return raw === "light" ? "light" : "dark";
+}
+
+function saveThemeMode(mode: ThemeMode) {
+  localStorage.setItem(THEME_MODE_KEY, mode);
+}
+
+function applyTheme(mode: ThemeMode) {
+  const p = PALETTES[mode];
+  for (const [k, v] of Object.entries(p)) {
+    document.documentElement.style.setProperty(k, v);
+  }
+}
+
 // ================= APP =================
 export default function App() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadThemeMode());
   const [employees, setEmployees] = useState<Employee[]>(() => normalizeEmployees(loadEmployees()));
   const [stores, setStores] = useState<string[]>(() => loadStores());
   const [view, setView] = useState<View>({ name: "list" });
   const [confirm, setConfirm] = useState<ConfirmState>({ open: false });
+
+  useEffect(() => {
+    applyTheme(themeMode);
+    saveThemeMode(themeMode);
+  }, [themeMode]);
 
   useEffect(() => saveEmployees(employees), [employees]);
   useEffect(() => saveStores(stores), [stores]);
@@ -235,8 +287,6 @@ export default function App() {
 
   function updateEmployeeId(rowId: string, employeeIdRaw: string) {
     const eid = digitsOnly(employeeIdRaw);
-    const target = employees.find((e) => e.id === rowId);
-    if (!target) return;
 
     if (!eid) {
       setEmployees(employees.map((e) => (e.id === rowId ? { ...e, employeeId: "" } : e)));
@@ -263,18 +313,10 @@ export default function App() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: THEME.bg,
-        color: THEME.text,
-        padding: 16,
-        fontFamily: "system-ui, Arial",
-      }}
-    >
+    <div style={{ minHeight: "100vh", background: THEME.bg, color: THEME.text, padding: 16, fontFamily: "system-ui, Arial" }}>
       <style>{`
         input[type="date"]::-webkit-calendar-picker-indicator {
-          filter: invert(1);
+          filter: invert(var(--calendarInvert));
           opacity: 1;
         }
       `}</style>
@@ -284,7 +326,6 @@ export default function App() {
           employees={employees}
           stores={stores}
           onAddEmployee={addEmployee}
-          onOpen={(rowId) => setView({ name: "employee", employeeRowId: rowId })}
           onSettings={() => setView({ name: "settings" })}
           onDelete={(rowId, label) =>
             setConfirm({
@@ -299,6 +340,7 @@ export default function App() {
               },
             })
           }
+          onOpen={(rowId) => setView({ name: "employee", employeeRowId: rowId })}
           onAddStore={(s) => {
             const trimmed = String(s ?? "").trim();
             if (!trimmed) return;
@@ -319,7 +361,13 @@ export default function App() {
         />
       )}
 
-      {view.name === "settings" && <SettingsPage onBack={() => setView({ name: "list" })} />}
+      {view.name === "settings" && (
+        <SettingsPage
+          onBack={() => setView({ name: "list" })}
+          themeMode={themeMode}
+          onThemeMode={(m) => setThemeMode(m)}
+        />
+      )}
 
       {confirm.open && <ConfirmDialog state={confirm} onCancel={() => setConfirm({ open: false })} />}
     </div>
@@ -372,23 +420,12 @@ function EmployeeList(props: {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 12,
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
         <div>
           <h2 style={{ margin: 0 }}>Employees</h2>
           <div style={{ color: THEME.muted, fontSize: 12 }}>Offline • Saved locally</div>
         </div>
-
-        <button onClick={props.onSettings} style={btnStyle("ghost")}>
-          Settings
-        </button>
+        <button onClick={props.onSettings} style={btnStyle("ghost")}>Settings</button>
       </div>
 
       <Card>
@@ -412,16 +449,10 @@ function EmployeeList(props: {
             inputMode="numeric"
             style={inputStyle()}
           />
-          <button onClick={submit} style={btnStyle("primary")}>
-            Add
-          </button>
+          <button onClick={submit} style={btnStyle("primary")}>Add</button>
         </div>
 
-        {error && (
-          <div style={{ marginTop: 10, color: THEME.danger, fontWeight: 900 }}>
-            {error}
-          </div>
-        )}
+        {error && <div style={{ marginTop: 10, color: THEME.danger, fontWeight: 900 }}>{error}</div>}
 
         <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
           {props.employees.length === 0 ? (
@@ -448,12 +479,8 @@ function EmployeeList(props: {
                     <div style={{ fontSize: 12, color: THEME.muted }}>{sumPoints(e.infractions)} pts</div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => props.onOpen(e.id)} style={btnStyle("ghost")}>
-                      Open
-                    </button>
-                    <button onClick={() => props.onDelete(e.id, label)} style={btnStyle("danger")}>
-                      Delete
-                    </button>
+                    <button onClick={() => props.onOpen(e.id)} style={btnStyle("ghost")}>Open</button>
+                    <button onClick={() => props.onDelete(e.id, label)} style={btnStyle("danger")}>Delete</button>
                   </div>
                 </div>
               );
@@ -530,13 +557,11 @@ function EmployeePage(props: {
 
   return (
     <div style={{ maxWidth: 980, margin: "0 auto" }}>
-      <button onClick={props.onBack} style={btnStyle("ghost")}>
-        Back
-      </button>
+      <button onClick={props.onBack} style={btnStyle("ghost")}>Back</button>
 
       <Card>
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <div style={{ minWidth: 280, flex: "1 1 520px" }}>
               <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 6 }}>Employee’s Name</div>
               <input
@@ -571,9 +596,7 @@ function EmployeePage(props: {
                   return;
                 }
 
-                const existsOther = props.employees.some(
-                  (x) => x.employeeId === v && x.id !== props.employee.id
-                );
+                const existsOther = props.employees.some((x) => x.employeeId === v && x.id !== props.employee.id);
                 if (existsOther) {
                   setIdError(`Employee ID ${v} already exists.`);
                   return;
@@ -593,15 +616,7 @@ function EmployeePage(props: {
       </Card>
 
       <Card>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Add Infraction</h3>
           <button onClick={() => setShowPolicy((v) => !v)} style={btnStyle("ghost")}>
             {showPolicy ? "Hide Policy Reference" : "View Policy Reference"}
@@ -619,35 +634,17 @@ function EmployeePage(props: {
             }}
           >
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Attendance policy reference</div>
-            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>
-              PRS Wal-Mart Wireless Attendance Policy (Revised May 2025)
-            </div>
+            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>PRS Wal-Mart Wireless Attendance Policy (Revised May 2025)</div>
             <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
-              <div>
-                • Call Out (prior to shift): <strong>3</strong> points
-              </div>
-              <div>
-                • Call Out (after shift starts): <strong>8</strong> points
-              </div>
-              <div>
-                • No Call / No Show: <strong>8</strong> points
-              </div>
+              <div>• Call Out (prior to shift): <strong>3</strong> points</div>
+              <div>• Call Out (after shift starts): <strong>8</strong> points</div>
+              <div>• No Call / No Show: <strong>8</strong> points</div>
               <div>• Tardy / Early Departure / Late Return:</div>
-              <div style={{ paddingLeft: 14 }}>
-                – Over 15 minutes, under 1 hour: <strong>1</strong> point
-              </div>
-              <div style={{ paddingLeft: 14 }}>
-                – Over 1 hour: <strong>2</strong> points
-              </div>
-              <div style={{ marginTop: 8 }}>
-                • <strong>6</strong> points: First Written Warning
-              </div>
-              <div>
-                • <strong>8</strong> points: Final Written Warning
-              </div>
-              <div>
-                • <strong>12</strong> points: Termination
-              </div>
+              <div style={{ paddingLeft: 14 }}>– Over 15 minutes, under 1 hour: <strong>1</strong> point</div>
+              <div style={{ paddingLeft: 14 }}>– Over 1 hour: <strong>2</strong> points</div>
+              <div style={{ marginTop: 8 }}>• <strong>6</strong> points: First Written Warning</div>
+              <div>• <strong>8</strong> points: Final Written Warning</div>
+              <div>• <strong>12</strong> points: Termination</div>
             </div>
           </div>
         )}
@@ -678,9 +675,7 @@ function EmployeePage(props: {
               <span style={{ fontSize: 12, color: THEME.muted }}>Scheduled Store</span>
               <select value={store} onChange={(e) => setStore(e.target.value)} style={selectStyle()}>
                 {props.stores.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
+                  <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </label>
@@ -688,18 +683,11 @@ function EmployeePage(props: {
 
           <label style={{ display: "grid", gap: 6 }}>
             <span style={{ fontSize: 12, color: THEME.muted }}>Reason (optional)</span>
-            <textarea
-              placeholder="Reason / notes (optional)"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              style={textareaStyle()}
-            />
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason / notes (optional)" style={textareaStyle()} />
           </label>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ color: THEME.muted, fontSize: 13 }}>
-              Points: <strong style={{ color: THEME.text }}>{points}</strong>
-            </div>
+            <div style={{ color: THEME.muted, fontSize: 13 }}>Points: <strong style={{ color: THEME.text }}>{points}</strong></div>
             <button
               onClick={() => {
                 props.onAdd({ type, date, store, points, reason });
@@ -746,7 +734,7 @@ function EmployeePage(props: {
   );
 }
 
-function SettingsPage(props: { onBack: () => void }) {
+function SettingsPage(props: { onBack: () => void; themeMode: ThemeMode; onThemeMode: (m: ThemeMode) => void }) {
   const [version, setVersion] = useState<string>("(unknown)");
   const [status, setStatus] = useState<UpdateStatus>({ state: "idle" });
 
@@ -789,15 +777,13 @@ function SettingsPage(props: { onBack: () => void }) {
         setStatus({ state: "error", message: res.message || "Update check failed." });
         return;
       }
-      if (res.latestVersion && res.currentVersion && res.latestVersion !== res.currentVersion) {
-        setStatus({
-          state: "available",
-          currentVersion: res.currentVersion,
-          latestVersion: res.latestVersion,
-          message: "Update available.",
-        });
+
+      const cur = res.currentVersion;
+      const latest = res.latestVersion;
+      if (latest && cur && latest !== cur) {
+        setStatus({ state: "available", currentVersion: cur, latestVersion: latest, message: "Update available." });
       } else {
-        setStatus({ state: "none", currentVersion: res.currentVersion, message: "Up to date." });
+        setStatus({ state: "none", currentVersion: cur, message: "Up to date." });
       }
     } catch (e: any) {
       setStatus({ state: "error", message: e?.message || "Update check failed." });
@@ -837,23 +823,37 @@ function SettingsPage(props: { onBack: () => void }) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <button onClick={props.onBack} style={btnStyle("ghost")}>
-        Back
-      </button>
+      <button onClick={props.onBack} style={btnStyle("ghost")}>Back</button>
 
       <Card>
         <h2 style={{ marginTop: 0 }}>Settings</h2>
 
-        <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "grid", gap: 14 }}>
+          <div>
+            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 8 }}>Theme</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                onClick={() => props.onThemeMode("dark")}
+                style={props.themeMode === "dark" ? btnStyle("primary") : btnStyle("ghost")}
+              >
+                Dark
+              </button>
+              <button
+                onClick={() => props.onThemeMode("light")}
+                style={props.themeMode === "light" ? btnStyle("primary") : btnStyle("ghost")}
+              >
+                Light
+              </button>
+            </div>
+          </div>
+
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <div>
               <div style={{ color: THEME.muted, fontSize: 12 }}>Version</div>
               <div style={{ fontWeight: 900, fontSize: 16 }}>{version}</div>
             </div>
 
-            <button onClick={checkUpdates} style={btnStyle("primary")}>
-              Check for updates
-            </button>
+            <button onClick={checkUpdates} style={btnStyle("primary")}>Check for updates</button>
           </div>
 
           <div
@@ -870,9 +870,7 @@ function SettingsPage(props: { onBack: () => void }) {
           </div>
 
           {status.state === "available" && (
-            <button onClick={installNow} style={btnStyle("primary")}>
-              Update & Restart
-            </button>
+            <button onClick={installNow} style={btnStyle("primary")}>Update & Restart</button>
           )}
         </div>
       </Card>
@@ -882,7 +880,7 @@ function SettingsPage(props: { onBack: () => void }) {
 
 function StatusPill(props: { status: string; total: number; tone: BadgeTone }) {
   const colors: Record<BadgeTone, { border: string; bg: string; fg: string }> = {
-    neutral: { border: THEME.border, bg: "rgba(255,255,255,0.03)", fg: THEME.text },
+    neutral: { border: THEME.border, bg: "rgba(2,6,23,0.03)", fg: THEME.text },
     ok: { border: THEME.ok, bg: "rgba(34,197,94,0.12)", fg: THEME.ok },
     warn: { border: THEME.warn, bg: "rgba(245,158,11,0.12)", fg: THEME.warn },
     danger: { border: THEME.danger, bg: "rgba(239,68,68,0.12)", fg: THEME.danger },
@@ -924,7 +922,7 @@ function Card(props: { children: React.ReactNode }) {
         padding: 14,
         margin: "12px 0",
         background: THEME.card,
-        boxShadow: "0 8px 30px rgba(0,0,0,0.25)",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
       }}
     >
       {props.children}
@@ -939,7 +937,7 @@ function inputStyle(): React.CSSProperties {
     padding: 10,
     borderRadius: 12,
     border: `1px solid ${THEME.border}`,
-    background: "rgba(255,255,255,0.03)",
+    background: "rgba(2,6,23,0.03)",
     color: THEME.text,
     outline: "none",
   };
@@ -951,7 +949,7 @@ function selectStyle(): React.CSSProperties {
     padding: 10,
     borderRadius: 12,
     border: `1px solid ${THEME.border}`,
-    background: "rgba(255,255,255,0.03)",
+    background: "rgba(2,6,23,0.03)",
     color: THEME.text,
     outline: "none",
   };
@@ -964,7 +962,7 @@ function textareaStyle(): React.CSSProperties {
     minHeight: 70,
     borderRadius: 12,
     border: `1px solid ${THEME.border}`,
-    background: "rgba(255,255,255,0.03)",
+    background: "rgba(2,6,23,0.03)",
     color: THEME.text,
     outline: "none",
     resize: "vertical",
@@ -978,14 +976,12 @@ function btnStyle(kind: "primary" | "ghost" | "danger"): React.CSSProperties {
     border: `1px solid ${THEME.border}`,
     fontWeight: 900,
     cursor: "pointer",
-    background: "rgba(255,255,255,0.02)",
+    background: "rgba(2,6,23,0.02)",
     color: THEME.text,
   };
 
-  if (kind === "primary")
-    return { ...base, background: THEME.primary, border: `1px solid ${THEME.primary}`, color: "#00111a" };
-  if (kind === "danger")
-    return { ...base, background: THEME.danger, border: `1px solid ${THEME.danger}`, color: "#0b0b0b" };
+  if (kind === "primary") return { ...base, background: THEME.primary, border: `1px solid ${THEME.primary}`, color: "#00111a" };
+  if (kind === "danger") return { ...base, background: THEME.danger, border: `1px solid ${THEME.danger}`, color: "#0b0b0b" };
   return base;
 }
 
@@ -993,38 +989,17 @@ function ConfirmDialog(props: { state: Extract<ConfirmState, { open: true }>; on
   const s = props.state;
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,.6)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-      }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) props.onCancel();
       }}
     >
-      <div
-        style={{
-          background: THEME.card,
-          border: `1px solid ${THEME.border}`,
-          borderRadius: 16,
-          padding: 16,
-          width: "100%",
-          maxWidth: 420,
-        }}
-      >
+      <div style={{ background: THEME.card, border: `1px solid ${THEME.border}`, borderRadius: 16, padding: 16, width: "100%", maxWidth: 420 }}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>{s.title}</div>
         <p style={{ color: THEME.muted, marginTop: 8 }}>{s.message}</p>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={props.onCancel} style={btnStyle("ghost")}>
-            Cancel
-          </button>
-          <button onClick={s.onConfirm} style={btnStyle(s.danger ? "danger" : "primary")}>
-            {s.confirmText ?? "OK"}
-          </button>
+          <button onClick={props.onCancel} style={btnStyle("ghost")}>Cancel</button>
+          <button onClick={s.onConfirm} style={btnStyle(s.danger ? "danger" : "primary")}>{s.confirmText ?? "OK"}</button>
         </div>
       </div>
     </div>
