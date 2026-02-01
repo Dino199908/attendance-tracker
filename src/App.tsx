@@ -22,14 +22,15 @@ type Infraction = {
 };
 
 type Employee = {
-  id: string;
-  name: string;
+  id: string; // internal row id
+  employeeId: string; // numbers only, required, unique
+  name: string; // Employee’s Name
   infractions: Infraction[];
 };
 
 type View =
   | { name: "list" }
-  | { name: "employee"; employeeId: string }
+  | { name: "employee"; employeeRowId: string }
   | { name: "settings" };
 
 type BadgeTone = "neutral" | "ok" | "warn" | "danger";
@@ -48,46 +49,17 @@ type ConfirmState =
 type UpdateStatus =
   | { state: "idle" }
   | { state: "checking" }
-  | { state: "none"; currentVersion?: string }
-  | { state: "available"; currentVersion?: string; latestVersion?: string }
-  | { state: "downloading"; percent?: number }
-  | { state: "ready"; latestVersion?: string }
+  | { state: "none"; currentVersion?: string; message?: string }
+  | { state: "available"; currentVersion?: string; latestVersion?: string; message?: string }
+  | { state: "downloading"; percent?: number; message?: string }
+  | { state: "ready"; latestVersion?: string; message?: string }
   | { state: "error"; message?: string };
 
-declare global {
-  interface Window {
-    attendanceUpdater?: {
-      getVersion: () => Promise<string>;
-      check: () => Promise<{ ok: boolean; message?: string }>;
-      installNow: () => Promise<{ ok: boolean }>;
-      onStatus: (cb: (payload: any) => void) => () => void;
-    };
-  }
-}
-
-type ThemeMode = "dark" | "light";
-
-type Theme = {
-  bg: string;
-  card: string;
-  border: string;
-  text: string;
-  muted: string;
-  primary: string;
-  danger: string;
-  warn: string;
-  ok: string;
-  inputBg: string;
-  softBg: string;
-  shadow: string;
-};
-
 // ================= CONSTANTS =================
-const STORAGE_KEY = "attendance_tracker_v2";
-const STORES_KEY = "attendance_tracker_stores_v2";
-const THEME_KEY = "attendance_tracker_theme_v2";
+const STORAGE_KEY = "attendance_tracker_v_final";
+const STORES_KEY = "attendance_tracker_stores_v_final";
 
-const DARK_THEME: Theme = {
+const THEME = {
   bg: "#0f172a",
   card: "#020617",
   border: "#1e293b",
@@ -97,25 +69,19 @@ const DARK_THEME: Theme = {
   danger: "#ef4444",
   warn: "#f59e0b",
   ok: "#22c55e",
-  inputBg: "rgba(255,255,255,0.03)",
-  softBg: "rgba(255,255,255,0.02)",
-  shadow: "0 8px 30px rgba(0,0,0,0.25)",
 };
 
-const LIGHT_THEME: Theme = {
-  bg: "#f8fafc",
-  card: "#ffffff",
-  border: "#e2e8f0",
-  text: "#0f172a",
-  muted: "#475569",
-  primary: "#0284c7",
-  danger: "#dc2626",
-  warn: "#d97706",
-  ok: "#16a34a",
-  inputBg: "#f1f5f9",
-  softBg: "#f8fafc",
-  shadow: "0 8px 30px rgba(2,6,23,0.08)",
-};
+// ================= UPDATER BRIDGE =================
+declare global {
+  interface Window {
+    attendanceUpdater?: {
+      getVersion: () => Promise<string>;
+      check: () => Promise<{ ok: boolean; message?: string; currentVersion?: string; latestVersion?: string }>;
+      installNow: () => Promise<{ ok: boolean; message?: string }>;
+      onStatus: (cb: (payload: any) => void) => () => void;
+    };
+  }
+}
 
 // ================= HELPERS =================
 function newId() {
@@ -124,6 +90,10 @@ function newId() {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function digitsOnly(s: string): string {
+  return (s ?? "").replace(/\D+/g, "");
 }
 
 function pointsForType(type: InfractionType): number {
@@ -191,6 +161,7 @@ function loadEmployees(): Employee[] {
 
       return {
         id: String(e?.id ?? newId()),
+        employeeId: digitsOnly(String(e?.employeeId ?? "")),
         name: String(e?.name ?? "Employee"),
         infractions,
       } as Employee;
@@ -223,73 +194,70 @@ function saveStores(data: string[]) {
   localStorage.setItem(STORES_KEY, JSON.stringify(data));
 }
 
-function loadThemeMode(): ThemeMode {
-  const v = localStorage.getItem(THEME_KEY);
-  return v === "light" ? "light" : "dark";
-}
-
-function saveThemeMode(mode: ThemeMode) {
-  localStorage.setItem(THEME_KEY, mode);
+function normalizeEmployees(data: Employee[]): Employee[] {
+  const seen = new Set<string>();
+  const out: Employee[] = [];
+  for (const e of data) {
+    const eid = digitsOnly(e.employeeId);
+    if (!eid) continue;
+    if (seen.has(eid)) continue;
+    seen.add(eid);
+    out.push({ ...e, employeeId: eid });
+  }
+  return out;
 }
 
 // ================= APP =================
 export default function App() {
-  const [employees, setEmployees] = useState<Employee[]>(() => loadEmployees());
+  const [employees, setEmployees] = useState<Employee[]>(() => normalizeEmployees(loadEmployees()));
   const [stores, setStores] = useState<string[]>(() => loadStores());
   const [view, setView] = useState<View>({ name: "list" });
   const [confirm, setConfirm] = useState<ConfirmState>({ open: false });
 
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadThemeMode());
-  const theme = useMemo<Theme>(() => (themeMode === "light" ? LIGHT_THEME : DARK_THEME), [themeMode]);
-
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
-
   useEffect(() => saveEmployees(employees), [employees]);
   useEffect(() => saveStores(stores), [stores]);
-  useEffect(() => saveThemeMode(themeMode), [themeMode]);
 
-  useEffect(() => {
-    if (!window.attendanceUpdater) return;
+  const selected = view.name === "employee" ? employees.find((e) => e.id === view.employeeRowId) : null;
 
-    window.attendanceUpdater.getVersion().then((v) => {
-      setUpdateStatus({ state: "none", currentVersion: v });
-    });
-
-    const off = window.attendanceUpdater.onStatus((payload) => {
-      setUpdateStatus(payload);
-    });
-
-    return () => {
-      if (off) off();
-    };
-  }, []);
-
-  const selected =
-    view.name === "employee"
-      ? employees.find((e) => e.id === view.employeeId)
-      : null;
-
-  function addEmployee(name: string) {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setEmployees([{ id: newId(), name: trimmed, infractions: [] }, ...employees]);
+  function addEmployee(name: string, employeeIdRaw: string) {
+    const n = name.trim();
+    const eid = digitsOnly(employeeIdRaw).trim();
+    if (!n || !eid) return;
+    if (employees.some((e) => e.employeeId === eid)) return;
+    setEmployees([{ id: newId(), name: n, employeeId: eid, infractions: [] }, ...employees]);
   }
 
-  function renameEmployee(id: string, name: string) {
+  function updateEmployeeName(rowId: string, name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setEmployees(employees.map((e) => (e.id === id ? { ...e, name: trimmed } : e)));
+    setEmployees(employees.map((e) => (e.id === rowId ? { ...e, name: trimmed } : e)));
   }
 
-  function deleteEmployee(id: string) {
-    setEmployees(employees.filter((e) => e.id !== id));
+  function updateEmployeeId(rowId: string, employeeIdRaw: string) {
+    const eid = digitsOnly(employeeIdRaw);
+    const target = employees.find((e) => e.id === rowId);
+    if (!target) return;
+
+    if (!eid) {
+      setEmployees(employees.map((e) => (e.id === rowId ? { ...e, employeeId: "" } : e)));
+      return;
+    }
+
+    const existsOther = employees.some((e) => e.employeeId === eid && e.id !== rowId);
+    if (existsOther) return;
+
+    setEmployees(employees.map((e) => (e.id === rowId ? { ...e, employeeId: eid } : e)));
+  }
+
+  function deleteEmployee(rowId: string) {
+    setEmployees(employees.filter((e) => e.id !== rowId));
     setView({ name: "list" });
   }
 
-  function addInfraction(empId: string, inf: Omit<Infraction, "id">) {
+  function addInfraction(empRowId: string, inf: Omit<Infraction, "id">) {
     setEmployees(
       employees.map((e) =>
-        e.id === empId ? { ...e, infractions: [{ ...inf, id: newId() }, ...e.infractions] } : e
+        e.id === empRowId ? { ...e, infractions: [{ ...inf, id: newId() }, ...e.infractions] } : e
       )
     );
   }
@@ -298,90 +266,39 @@ export default function App() {
     <div
       style={{
         minHeight: "100vh",
-        background: theme.bg,
-        color: theme.text,
+        background: THEME.bg,
+        color: THEME.text,
         padding: 16,
         fontFamily: "system-ui, Arial",
       }}
     >
       <style>{`
         input[type="date"]::-webkit-calendar-picker-indicator {
-          filter: ${themeMode === "dark" ? "invert(1)" : "invert(0)"};
+          filter: invert(1);
           opacity: 1;
         }
       `}</style>
 
-      {window.attendanceUpdater && updateStatus.state !== "idle" && (
-        <div
-          style={{
-            maxWidth: 980,
-            margin: "0 auto 12px auto",
-            borderRadius: 14,
-            border: `1px solid ${theme.border}`,
-            padding: 12,
-            background: theme.softBg,
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-            boxShadow: theme.shadow,
-          }}
-        >
-          <div style={{ fontWeight: 800 }}>
-            {updateStatus.state === "checking" && "Checking for updates…"}
-            {updateStatus.state === "none" &&
-              `Up to date${updateStatus.currentVersion ? ` (v${updateStatus.currentVersion})` : ""}`}
-            {updateStatus.state === "available" &&
-              `Update available${updateStatus.latestVersion ? ` (v${updateStatus.latestVersion})` : ""} — downloading…`}
-            {updateStatus.state === "downloading" && `Downloading update… ${updateStatus.percent ?? 0}%`}
-            {updateStatus.state === "ready" &&
-              `Update ready${updateStatus.latestVersion ? ` (v${updateStatus.latestVersion})` : ""}`}
-            {updateStatus.state === "error" && `Updater error: ${updateStatus.message ?? "Unknown error"}`}
-          </div>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => window.attendanceUpdater?.check()}
-              style={btnStyle(theme, "ghost")}
-            >
-              Check now
-            </button>
-
-            {updateStatus.state === "ready" && (
-              <button
-                onClick={() => window.attendanceUpdater?.installNow()}
-                style={btnStyle(theme, "primary")}
-              >
-                Update & Restart
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {view.name === "list" && (
         <EmployeeList
-          theme={theme}
-          themeMode={themeMode}
-          onOpenSettings={() => setView({ name: "settings" })}
           employees={employees}
           stores={stores}
           onAddEmployee={addEmployee}
-          onDelete={(id, name) =>
+          onOpen={(rowId) => setView({ name: "employee", employeeRowId: rowId })}
+          onSettings={() => setView({ name: "settings" })}
+          onDelete={(rowId, label) =>
             setConfirm({
               open: true,
               title: "Delete Employee",
-              message: `Delete ${name}? This cannot be undone.`,
+              message: `Delete ${label}? This cannot be undone.`,
               danger: true,
               confirmText: "Delete",
               onConfirm: () => {
                 setConfirm({ open: false });
-                deleteEmployee(id);
+                deleteEmployee(rowId);
               },
             })
           }
-          onOpen={(id) => setView({ name: "employee", employeeId: id })}
           onAddStore={(s) => {
             const trimmed = String(s ?? "").trim();
             if (!trimmed) return;
@@ -392,44 +309,66 @@ export default function App() {
 
       {view.name === "employee" && selected && (
         <EmployeePage
-          theme={theme}
           employee={selected}
+          employees={employees}
           stores={stores}
           onBack={() => setView({ name: "list" })}
-          onRename={(name) => renameEmployee(selected.id, name)}
+          onRename={(name) => updateEmployeeName(selected.id, name)}
+          onChangeEmployeeId={(eid) => updateEmployeeId(selected.id, eid)}
           onAdd={(data) => addInfraction(selected.id, data)}
         />
       )}
 
-      {view.name === "settings" && (
-        <SettingsPage
-          theme={theme}
-          themeMode={themeMode}
-          onSetThemeMode={setThemeMode}
-          updateStatus={updateStatus}
-          onBack={() => setView({ name: "list" })}
-        />
-      )}
+      {view.name === "settings" && <SettingsPage onBack={() => setView({ name: "list" })} />}
 
-      {confirm.open && <ConfirmDialog theme={theme} state={confirm} onCancel={() => setConfirm({ open: false })} />}
+      {confirm.open && <ConfirmDialog state={confirm} onCancel={() => setConfirm({ open: false })} />}
     </div>
   );
 }
 
 // ================= COMPONENTS =================
 function EmployeeList(props: {
-  theme: Theme;
-  themeMode: ThemeMode;
-  onOpenSettings: () => void;
   employees: Employee[];
   stores: string[];
-  onAddEmployee: (name: string) => void;
-  onDelete: (id: string, name: string) => void;
-  onOpen: (id: string) => void;
+  onAddEmployee: (name: string, employeeId: string) => void;
+  onDelete: (rowId: string, label: string) => void;
+  onOpen: (rowId: string) => void;
   onAddStore: (store: string) => void;
+  onSettings: () => void;
 }) {
   const [name, setName] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
   const [store, setStore] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit() {
+    const n = name.trim();
+    const eid = digitsOnly(employeeId).trim();
+
+    if (!n && !eid) {
+      setError("Employee’s Name and Employee ID are required.");
+      return;
+    }
+    if (!n) {
+      setError("Employee’s Name is required.");
+      return;
+    }
+    if (!eid) {
+      setError("Employee ID is required (numbers only).");
+      return;
+    }
+
+    const exists = props.employees.some((e) => String(e.employeeId) === eid);
+    if (exists) {
+      setError(`Employee ID ${eid} already exists. Employee IDs must be unique.`);
+      return;
+    }
+
+    setError(null);
+    props.onAddEmployee(n, eid);
+    setName("");
+    setEmployeeId("");
+  }
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -444,80 +383,95 @@ function EmployeeList(props: {
       >
         <div>
           <h2 style={{ margin: 0 }}>Employees</h2>
-          <div style={{ color: props.theme.muted, fontSize: 12 }}>Offline • Saved locally</div>
+          <div style={{ color: THEME.muted, fontSize: 12 }}>Offline • Saved locally</div>
         </div>
 
-        <button onClick={props.onOpenSettings} style={btnStyle(props.theme, "ghost")}>
+        <button onClick={props.onSettings} style={btnStyle("ghost")}>
           Settings
         </button>
       </div>
 
-      <Card theme={props.theme}>
+      <Card>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Employee name"
-            style={inputStyle(props.theme)}
-          />
-          <button
-            onClick={() => {
-              props.onAddEmployee(name);
-              setName("");
+            onChange={(e) => {
+              setName(e.target.value);
+              setError(null);
             }}
-            style={btnStyle(props.theme, "primary")}
-          >
+            placeholder="Employee’s Name (required)"
+            style={inputStyle()}
+          />
+          <input
+            value={employeeId}
+            onChange={(e) => {
+              setEmployeeId(digitsOnly(e.target.value));
+              setError(null);
+            }}
+            placeholder="Employee ID (numbers only, required)"
+            inputMode="numeric"
+            style={inputStyle()}
+          />
+          <button onClick={submit} style={btnStyle("primary")}>
             Add
           </button>
         </div>
 
+        {error && (
+          <div style={{ marginTop: 10, color: THEME.danger, fontWeight: 900 }}>
+            {error}
+          </div>
+        )}
+
         <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
           {props.employees.length === 0 ? (
-            <div style={{ color: props.theme.muted }}>No employees yet.</div>
+            <div style={{ color: THEME.muted }}>No employees yet.</div>
           ) : (
-            props.employees.map((e) => (
-              <div
-                key={e.id}
-                style={{
-                  border: `1px solid ${props.theme.border}`,
-                  borderRadius: 14,
-                  padding: 12,
-                  background: props.theme.softBg,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  boxShadow: props.theme.shadow,
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 800 }}>{e.name}</div>
-                  <div style={{ fontSize: 12, color: props.theme.muted }}>{sumPoints(e.infractions)} pts</div>
+            props.employees.map((e) => {
+              const label = `${e.name} (${e.employeeId})`;
+              return (
+                <div
+                  key={e.id}
+                  style={{
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 14,
+                    padding: 12,
+                    background: "rgba(255,255,255,0.02)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 900 }}>{label}</div>
+                    <div style={{ fontSize: 12, color: THEME.muted }}>{sumPoints(e.infractions)} pts</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => props.onOpen(e.id)} style={btnStyle("ghost")}>
+                      Open
+                    </button>
+                    <button onClick={() => props.onDelete(e.id, label)} style={btnStyle("danger")}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => props.onOpen(e.id)} style={btnStyle(props.theme, "ghost")}>
-                    Open
-                  </button>
-                  <button onClick={() => props.onDelete(e.id, e.name)} style={btnStyle(props.theme, "danger")}>
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </Card>
 
-      <Card theme={props.theme}>
+      <Card>
         <h3 style={{ marginTop: 0 }}>Stores</h3>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <input value={store} onChange={(e) => setStore(e.target.value)} placeholder="Store #" style={inputStyle(props.theme)} />
+          <input value={store} onChange={(e) => setStore(e.target.value)} placeholder="Store #" style={inputStyle()} />
           <button
             onClick={() => {
               props.onAddStore(store);
               setStore("");
             }}
-            style={btnStyle(props.theme, "primary")}
+            style={btnStyle("primary")}
           >
             Add Store
           </button>
@@ -529,11 +483,11 @@ function EmployeeList(props: {
               <span
                 key={s}
                 style={{
-                  border: `1px solid ${props.theme.border}`,
+                  border: `1px solid ${THEME.border}`,
                   padding: "6px 10px",
                   borderRadius: 999,
-                  background: props.theme.softBg,
-                  fontWeight: 800,
+                  background: "rgba(255,255,255,0.02)",
+                  fontWeight: 900,
                 }}
               >
                 {s}
@@ -546,101 +500,17 @@ function EmployeeList(props: {
   );
 }
 
-function SettingsPage(props: {
-  theme: Theme;
-  themeMode: ThemeMode;
-  onSetThemeMode: (m: ThemeMode) => void;
-  updateStatus: UpdateStatus;
-  onBack: () => void;
-}) {
-  const currentVersion =
-    props.updateStatus.state === "none" || props.updateStatus.state === "available"
-      ? props.updateStatus.currentVersion
-      : props.updateStatus.state === "idle"
-      ? undefined
-      : (props.updateStatus as any)?.currentVersion;
-
-  const canUseUpdater = !!window.attendanceUpdater;
-
-  return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <button onClick={props.onBack} style={btnStyle(props.theme, "ghost")}>
-        Back
-      </button>
-
-      <Card theme={props.theme}>
-        <h2 style={{ marginTop: 0 }}>Settings</h2>
-
-        <div style={{ display: "grid", gap: 12 }}>
-          <div
-            style={{
-              border: `1px solid ${props.theme.border}`,
-              borderRadius: 14,
-              padding: 12,
-              background: props.theme.softBg,
-              boxShadow: props.theme.shadow,
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>App Version</div>
-            <div style={{ color: props.theme.muted }}>
-              {currentVersion ? `v${currentVersion}` : "Version not available (dev mode)"}{" "}
-            </div>
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                onClick={() => window.attendanceUpdater?.check()}
-                disabled={!canUseUpdater}
-                style={btnStyle(props.theme, "ghost")}
-              >
-                Check for updates
-              </button>
-              {!canUseUpdater && (
-                <div style={{ color: props.theme.muted, fontSize: 12, alignSelf: "center" }}>
-                  Updater works in the installed app (not desktop:dev).
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            style={{
-              border: `1px solid ${props.theme.border}`,
-              borderRadius: 14,
-              padding: 12,
-              background: props.theme.softBg,
-              boxShadow: props.theme.shadow,
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Theme</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                onClick={() => props.onSetThemeMode("dark")}
-                style={btnStyle(props.theme, props.themeMode === "dark" ? "primary" : "ghost")}
-              >
-                Dark
-              </button>
-              <button
-                onClick={() => props.onSetThemeMode("light")}
-                style={btnStyle(props.theme, props.themeMode === "light" ? "primary" : "ghost")}
-              >
-                Light
-              </button>
-            </div>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
 function EmployeePage(props: {
-  theme: Theme;
   employee: Employee;
+  employees: Employee[];
   stores: string[];
   onBack: () => void;
   onRename: (name: string) => void;
+  onChangeEmployeeId: (employeeId: string) => void;
   onAdd: (data: Omit<Infraction, "id">) => void;
 }) {
   const [name, setName] = useState(props.employee.name);
+  const [employeeId, setEmployeeId] = useState(props.employee.employeeId);
 
   const [type, setType] = useState<InfractionType>("Tardy (16-59 min)");
   const [date, setDate] = useState(todayISO());
@@ -648,10 +518,10 @@ function EmployeePage(props: {
   const [reason, setReason] = useState("");
 
   const [showPolicy, setShowPolicy] = useState(false);
+  const [idError, setIdError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setName(props.employee.name);
-  }, [props.employee.name]);
+  useEffect(() => setName(props.employee.name), [props.employee.name]);
+  useEffect(() => setEmployeeId(props.employee.employeeId), [props.employee.employeeId]);
 
   const points = useMemo(() => pointsForType(type), [type]);
   const total = useMemo(() => sumPoints(props.employee.infractions), [props.employee.infractions]);
@@ -660,42 +530,69 @@ function EmployeePage(props: {
 
   return (
     <div style={{ maxWidth: 980, margin: "0 auto" }}>
-      <button onClick={props.onBack} style={btnStyle(props.theme, "ghost")}>
+      <button onClick={props.onBack} style={btnStyle("ghost")}>
         Back
       </button>
 
-      <Card theme={props.theme}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ minWidth: 260, flex: "1 1 360px" }}>
-            <div style={{ color: props.theme.muted, fontSize: 12, marginBottom: 6 }}>Employee Name</div>
-            <input
-              value={name}
-              onChange={(e) => {
-                const v = e.target.value;
-                setName(v);
-                props.onRename(v);
-              }}
-              placeholder="Employee name"
-              style={inputStyle(props.theme)}
-            />
-            <div style={{ marginTop: 6, fontSize: 12, color: props.theme.muted }}>Updates automatically</div>
+      <Card>
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 280, flex: "1 1 520px" }}>
+              <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 6 }}>Employee’s Name</div>
+              <input
+                value={name}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setName(v);
+                  props.onRename(v);
+                }}
+                placeholder="Employee’s Name"
+                style={inputStyle()}
+              />
+              <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted }}>Updates automatically</div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", flex: "0 0 auto" }}>
+              <StatusPill status={status} total={total} tone={tone} />
+            </div>
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", flex: "0 0 auto" }}>
-            <StatusPill theme={props.theme} status={status} total={total} tone={tone} />
+          <div>
+            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 6 }}>Employee ID (numbers only, unique)</div>
+            <input
+              value={employeeId}
+              onChange={(e) => {
+                const v = digitsOnly(e.target.value);
+                setEmployeeId(v);
+
+                if (!v) {
+                  setIdError("Employee ID is required.");
+                  props.onChangeEmployeeId("");
+                  return;
+                }
+
+                const existsOther = props.employees.some(
+                  (x) => x.employeeId === v && x.id !== props.employee.id
+                );
+                if (existsOther) {
+                  setIdError(`Employee ID ${v} already exists.`);
+                  return;
+                }
+
+                setIdError(null);
+                props.onChangeEmployeeId(v);
+              }}
+              placeholder="Employee ID"
+              inputMode="numeric"
+              style={inputStyle()}
+            />
+            {idError && <div style={{ marginTop: 6, color: THEME.danger, fontWeight: 900 }}>{idError}</div>}
+            {!idError && <div style={{ marginTop: 6, fontSize: 12, color: THEME.muted }}>Updates automatically</div>}
           </div>
         </div>
       </Card>
 
-      <Card theme={props.theme}>
+      <Card>
         <div
           style={{
             display: "flex",
@@ -706,7 +603,7 @@ function EmployeePage(props: {
           }}
         >
           <h3 style={{ margin: 0 }}>Add Infraction</h3>
-          <button onClick={() => setShowPolicy((v) => !v)} style={btnStyle(props.theme, "ghost")}>
+          <button onClick={() => setShowPolicy((v) => !v)} style={btnStyle("ghost")}>
             {showPolicy ? "Hide Policy Reference" : "View Policy Reference"}
           </button>
         </div>
@@ -715,15 +612,14 @@ function EmployeePage(props: {
           <div
             style={{
               marginTop: 12,
-              border: `1px solid ${props.theme.border}`,
+              border: `1px solid ${THEME.border}`,
               borderRadius: 14,
               padding: 12,
-              background: props.theme.softBg,
-              boxShadow: props.theme.shadow,
+              background: "rgba(255,255,255,0.02)",
             }}
           >
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Attendance policy reference</div>
-            <div style={{ color: props.theme.muted, fontSize: 12, marginBottom: 10 }}>
+            <div style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>
               PRS Wal-Mart Wireless Attendance Policy (Revised May 2025)
             </div>
             <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
@@ -758,8 +654,8 @@ function EmployeePage(props: {
 
         <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontSize: 12, color: props.theme.muted }}>Type</span>
-            <select value={type} onChange={(e) => setType(e.target.value as InfractionType)} style={selectStyle(props.theme)}>
+            <span style={{ fontSize: 12, color: THEME.muted }}>Type</span>
+            <select value={type} onChange={(e) => setType(e.target.value as InfractionType)} style={selectStyle()}>
               <option value="Call Out (Prior to shift)">Call Out (prior to shift) — 3 pts</option>
               <option value="Call Out (After shift starts)">Call Out (after shift starts) — 8 pts</option>
               <option value="No Call / No Show">No Call / No Show — 8 pts</option>
@@ -774,13 +670,13 @@ function EmployeePage(props: {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: props.theme.muted }}>Date</span>
-              <input value={date} type="date" onChange={(e) => setDate(e.target.value)} style={inputStyle(props.theme)} />
+              <span style={{ fontSize: 12, color: THEME.muted }}>Date</span>
+              <input value={date} type="date" onChange={(e) => setDate(e.target.value)} style={inputStyle()} />
             </label>
 
             <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: props.theme.muted }}>Scheduled Store</span>
-              <select value={store} onChange={(e) => setStore(e.target.value)} style={selectStyle(props.theme)}>
+              <span style={{ fontSize: 12, color: THEME.muted }}>Scheduled Store</span>
+              <select value={store} onChange={(e) => setStore(e.target.value)} style={selectStyle()}>
                 {props.stores.map((s) => (
                   <option key={s} value={s}>
                     {s}
@@ -791,25 +687,25 @@ function EmployeePage(props: {
           </div>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontSize: 12, color: props.theme.muted }}>Reason (optional)</span>
+            <span style={{ fontSize: 12, color: THEME.muted }}>Reason (optional)</span>
             <textarea
               placeholder="Reason / notes (optional)"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              style={textareaStyle(props.theme)}
+              style={textareaStyle()}
             />
           </label>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ color: props.theme.muted, fontSize: 13 }}>
-              Points: <strong style={{ color: props.theme.text }}>{points}</strong>
+            <div style={{ color: THEME.muted, fontSize: 13 }}>
+              Points: <strong style={{ color: THEME.text }}>{points}</strong>
             </div>
             <button
               onClick={() => {
                 props.onAdd({ type, date, store, points, reason });
                 setReason("");
               }}
-              style={btnStyle(props.theme, "primary")}
+              style={btnStyle("primary")}
             >
               Add Infraction
             </button>
@@ -817,28 +713,27 @@ function EmployeePage(props: {
         </div>
       </Card>
 
-      <Card theme={props.theme}>
+      <Card>
         <h3 style={{ marginTop: 0 }}>Infractions</h3>
         {props.employee.infractions.length === 0 ? (
-          <div style={{ color: props.theme.muted }}>No infractions yet.</div>
+          <div style={{ color: THEME.muted }}>No infractions yet.</div>
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
             {props.employee.infractions.map((i) => (
               <div
                 key={i.id}
                 style={{
-                  border: `1px solid ${props.theme.border}`,
+                  border: `1px solid ${THEME.border}`,
                   borderRadius: 14,
                   padding: 12,
-                  background: props.theme.softBg,
-                  boxShadow: props.theme.shadow,
+                  background: "rgba(255,255,255,0.02)",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 900 }}>{i.type}</div>
-                  <div style={{ color: props.theme.muted }}>{i.points} pts</div>
+                  <div style={{ color: THEME.muted }}>{i.points} pts</div>
                 </div>
-                <div style={{ marginTop: 6, color: props.theme.muted, fontSize: 13 }}>
+                <div style={{ marginTop: 6, color: THEME.muted, fontSize: 13 }}>
                   {i.date} • Store: {i.store}
                   {i.reason ? ` • Reason: ${i.reason}` : ""}
                 </div>
@@ -851,12 +746,146 @@ function EmployeePage(props: {
   );
 }
 
-function StatusPill(props: { theme: Theme; status: string; total: number; tone: BadgeTone }) {
+function SettingsPage(props: { onBack: () => void }) {
+  const [version, setVersion] = useState<string>("(unknown)");
+  const [status, setStatus] = useState<UpdateStatus>({ state: "idle" });
+
+  useEffect(() => {
+    let off: (() => void) | undefined;
+
+    const up = window.attendanceUpdater;
+    if (!up) {
+      setVersion("(offline build)");
+      setStatus({ state: "none", message: "Updater not available in this build." });
+      return;
+    }
+
+    up.getVersion()
+      .then((v) => setVersion(v))
+      .catch(() => setVersion("(unknown)"));
+
+    off = up.onStatus((payload: any) => {
+      if (payload && typeof payload === "object" && typeof payload.state === "string") {
+        setStatus(payload as UpdateStatus);
+      }
+    });
+
+    return () => {
+      if (off) off();
+    };
+  }, []);
+
+  async function checkUpdates() {
+    const up = window.attendanceUpdater;
+    if (!up) {
+      setStatus({ state: "error", message: "Updater not available." });
+      return;
+    }
+
+    setStatus({ state: "checking" });
+    try {
+      const res = await up.check();
+      if (!res.ok) {
+        setStatus({ state: "error", message: res.message || "Update check failed." });
+        return;
+      }
+      if (res.latestVersion && res.currentVersion && res.latestVersion !== res.currentVersion) {
+        setStatus({
+          state: "available",
+          currentVersion: res.currentVersion,
+          latestVersion: res.latestVersion,
+          message: "Update available.",
+        });
+      } else {
+        setStatus({ state: "none", currentVersion: res.currentVersion, message: "Up to date." });
+      }
+    } catch (e: any) {
+      setStatus({ state: "error", message: e?.message || "Update check failed." });
+    }
+  }
+
+  async function installNow() {
+    const up = window.attendanceUpdater;
+    if (!up) return;
+    setStatus({ state: "downloading", message: "Installing…" });
+    try {
+      const res = await up.installNow();
+      if (!res.ok) setStatus({ state: "error", message: res.message || "Install failed." });
+    } catch (e: any) {
+      setStatus({ state: "error", message: e?.message || "Install failed." });
+    }
+  }
+
+  const statusText = (() => {
+    switch (status.state) {
+      case "idle":
+        return "—";
+      case "checking":
+        return "Checking for updates…";
+      case "available":
+        return `Update available: ${status.latestVersion ?? ""}`.trim();
+      case "none":
+        return status.message || "Up to date.";
+      case "downloading":
+        return status.message || "Downloading…";
+      case "ready":
+        return status.message || "Ready to install.";
+      case "error":
+        return status.message || "Updater error.";
+    }
+  })();
+
+  return (
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <button onClick={props.onBack} style={btnStyle("ghost")}>
+        Back
+      </button>
+
+      <Card>
+        <h2 style={{ marginTop: 0 }}>Settings</h2>
+
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ color: THEME.muted, fontSize: 12 }}>Version</div>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>{version}</div>
+            </div>
+
+            <button onClick={checkUpdates} style={btnStyle("primary")}>
+              Check for updates
+            </button>
+          </div>
+
+          <div
+            style={{
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 14,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+              color: THEME.muted,
+              fontSize: 13,
+            }}
+          >
+            {statusText}
+          </div>
+
+          {status.state === "available" && (
+            <button onClick={installNow} style={btnStyle("primary")}>
+              Update & Restart
+            </button>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function StatusPill(props: { status: string; total: number; tone: BadgeTone }) {
   const colors: Record<BadgeTone, { border: string; bg: string; fg: string }> = {
-    neutral: { border: props.theme.border, bg: props.theme.softBg, fg: props.theme.text },
-    ok: { border: props.theme.ok, bg: "rgba(34,197,94,0.12)", fg: props.theme.ok },
-    warn: { border: props.theme.warn, bg: "rgba(245,158,11,0.12)", fg: props.theme.warn },
-    danger: { border: props.theme.danger, bg: "rgba(239,68,68,0.12)", fg: props.theme.danger },
+    neutral: { border: THEME.border, bg: "rgba(255,255,255,0.03)", fg: THEME.text },
+    ok: { border: THEME.ok, bg: "rgba(34,197,94,0.12)", fg: THEME.ok },
+    warn: { border: THEME.warn, bg: "rgba(245,158,11,0.12)", fg: THEME.warn },
+    danger: { border: THEME.danger, bg: "rgba(239,68,68,0.12)", fg: THEME.danger },
   };
 
   const s = colors[props.tone];
@@ -870,32 +899,32 @@ function StatusPill(props: { theme: Theme; status: string; total: number; tone: 
         borderRadius: 999,
         padding: "10px 14px",
         fontWeight: 900,
-        fontSize: 16,
+        fontSize: 18,
         display: "flex",
         alignItems: "center",
         gap: 10,
-        minHeight: 44,
+        minHeight: 48,
       }}
       title="Attendance Status"
     >
-      <span style={{ color: props.theme.muted, fontSize: 12, fontWeight: 800 }}>Status</span>
+      <span style={{ color: THEME.muted, fontSize: 12, fontWeight: 900 }}>Status</span>
       <span>{props.status}</span>
-      <span style={{ color: props.theme.text, opacity: 0.5 }}>•</span>
-      <span style={{ color: props.theme.text }}>{props.total} pts</span>
+      <span style={{ color: THEME.text, opacity: 0.9 }}>•</span>
+      <span style={{ color: THEME.text }}>{props.total} pts</span>
     </div>
   );
 }
 
-function Card(props: { theme: Theme; children: React.ReactNode }) {
+function Card(props: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        border: `1px solid ${props.theme.border}`,
+        border: `1px solid ${THEME.border}`,
         borderRadius: 16,
         padding: 14,
         margin: "12px 0",
-        background: props.theme.card,
-        boxShadow: props.theme.shadow,
+        background: THEME.card,
+        boxShadow: "0 8px 30px rgba(0,0,0,0.25)",
       }}
     >
       {props.children}
@@ -903,64 +932,64 @@ function Card(props: { theme: Theme; children: React.ReactNode }) {
   );
 }
 
-function inputStyle(theme: Theme): React.CSSProperties {
+function inputStyle(): React.CSSProperties {
   return {
     width: 260,
     maxWidth: "100%",
     padding: 10,
     borderRadius: 12,
-    border: `1px solid ${theme.border}`,
-    background: theme.inputBg,
-    color: theme.text,
+    border: `1px solid ${THEME.border}`,
+    background: "rgba(255,255,255,0.03)",
+    color: THEME.text,
     outline: "none",
   };
 }
 
-function selectStyle(theme: Theme): React.CSSProperties {
+function selectStyle(): React.CSSProperties {
   return {
     width: "100%",
     padding: 10,
     borderRadius: 12,
-    border: `1px solid ${theme.border}`,
-    background: theme.inputBg,
-    color: theme.text,
+    border: `1px solid ${THEME.border}`,
+    background: "rgba(255,255,255,0.03)",
+    color: THEME.text,
     outline: "none",
   };
 }
 
-function textareaStyle(theme: Theme): React.CSSProperties {
+function textareaStyle(): React.CSSProperties {
   return {
     width: "100%",
     padding: 10,
     minHeight: 70,
     borderRadius: 12,
-    border: `1px solid ${theme.border}`,
-    background: theme.inputBg,
-    color: theme.text,
+    border: `1px solid ${THEME.border}`,
+    background: "rgba(255,255,255,0.03)",
+    color: THEME.text,
     outline: "none",
     resize: "vertical",
   };
 }
 
-function btnStyle(theme: Theme, kind: "primary" | "ghost" | "danger"): React.CSSProperties {
+function btnStyle(kind: "primary" | "ghost" | "danger"): React.CSSProperties {
   const base: React.CSSProperties = {
     padding: "10px 12px",
     borderRadius: 12,
-    border: `1px solid ${theme.border}`,
+    border: `1px solid ${THEME.border}`,
     fontWeight: 900,
     cursor: "pointer",
-    background: theme.softBg,
-    color: theme.text,
+    background: "rgba(255,255,255,0.02)",
+    color: THEME.text,
   };
 
   if (kind === "primary")
-    return { ...base, background: theme.primary, border: `1px solid ${theme.primary}`, color: "#00111a" };
+    return { ...base, background: THEME.primary, border: `1px solid ${THEME.primary}`, color: "#00111a" };
   if (kind === "danger")
-    return { ...base, background: theme.danger, border: `1px solid ${theme.danger}`, color: "#0b0b0b" };
+    return { ...base, background: THEME.danger, border: `1px solid ${THEME.danger}`, color: "#0b0b0b" };
   return base;
 }
 
-function ConfirmDialog(props: { theme: Theme; state: Extract<ConfirmState, { open: true }>; onCancel: () => void }) {
+function ConfirmDialog(props: { state: Extract<ConfirmState, { open: true }>; onCancel: () => void }) {
   const s = props.state;
   return (
     <div
@@ -979,22 +1008,21 @@ function ConfirmDialog(props: { theme: Theme; state: Extract<ConfirmState, { ope
     >
       <div
         style={{
-          background: props.theme.card,
-          border: `1px solid ${props.theme.border}`,
+          background: THEME.card,
+          border: `1px solid ${THEME.border}`,
           borderRadius: 16,
           padding: 16,
           width: "100%",
           maxWidth: 420,
-          boxShadow: props.theme.shadow,
         }}
       >
         <div style={{ fontWeight: 900, fontSize: 16 }}>{s.title}</div>
-        <p style={{ color: props.theme.muted, marginTop: 8 }}>{s.message}</p>
+        <p style={{ color: THEME.muted, marginTop: 8 }}>{s.message}</p>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={props.onCancel} style={btnStyle(props.theme, "ghost")}>
+          <button onClick={props.onCancel} style={btnStyle("ghost")}>
             Cancel
           </button>
-          <button onClick={s.onConfirm} style={btnStyle(props.theme, s.danger ? "danger" : "primary")}>
+          <button onClick={s.onConfirm} style={btnStyle(s.danger ? "danger" : "primary")}>
             {s.confirmText ?? "OK"}
           </button>
         </div>
